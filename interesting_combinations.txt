@@ -1,0 +1,16 @@
+# Non-degenerate combinations (w* not one-hot)
+random,weighted
+random,adversarial_time_variant
+random,burst_fluctuating
+gaussian,weighted
+gaussian,adversarial_time_variant
+sinusoidal,adversarial_time_variant
+decaying,adversarial_time_variant
+bursty,adversarial_time_variant
+adversarial,tracking
+adversarial,weighted
+adversarial,burst_fluctuating
+adversarial,burst_decay
+switching,adversarial_time_variant
+spike_decay,weighted
+spike_decay,adversarial_time_variant
