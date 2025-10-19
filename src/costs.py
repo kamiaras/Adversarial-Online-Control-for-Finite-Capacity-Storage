@@ -18,7 +18,7 @@ def c_quadratic_tracking(b, u, t=None, target=1.0):
     return b + (target - u) ** 2
 
 
-def c_weighted_combo(b, u, t=None, s1=0, s2=50, target=1.0):
+def c_weighted_combo(b, u, t=None, s1=0.1, s2=2, target=1.0):
     """c_t(b, u) = s1*b + s2*(target - u)^2."""
     return s1 * b + s2 * (target - u) ** 2
 
