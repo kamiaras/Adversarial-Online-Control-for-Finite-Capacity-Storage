@@ -1,5 +1,5 @@
 import numpy as np
-
+import cvxpy as c
 
 # --- Cell 3: Define Convex Cost Functions c_t(b, u) ---
 
@@ -33,6 +33,15 @@ def c_time_variant_adversarial(b, u, t, s1=1.0, s2=0.5):
     """c_t(b, u) = s1*(-1)^t * b + s2*(1 - u)^2 (alternating adversarial sign)."""
     return ((-1) ** t) * s1 * b + s2 * (1 - u) ** 2
 
+
+def c_sin_randomized(b, u, t, period_b=5, period_u=10, seed=123):
+
+    rng = np.random.default_rng(seed + t)
+    noise_t_b = rng.uniform(0, 0.5)  # random multiplier each step
+    sin_t_b = np.sin(2 * np.pi * t / period_b)
+    sin_t_u = np.sin(2 * np.pi * t / period_u)
+    noise_t_u = rng.uniform(0, 0.5)  # random multiplier each step
+    return (1 + noise_t_b + sin_t_b) *(1-b)**2 +  (1 + noise_t_u + sin_t_u) * (1 - u) ** 2
 
 # --- NEW Burst and Unpredictable Cost Functions ---
 
@@ -89,5 +98,6 @@ COST_FUNCTIONS = {
     "burst_randomized": c_burst_randomized,
     "burst_switching": c_burst_switching,
     "burst_decay": c_burst_decay,
+    "sin_randomized": c_sin_randomized,
 }
 

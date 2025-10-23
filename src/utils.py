@@ -11,6 +11,8 @@ This module is fully function-agnostic:
   zero-padding, and simplex projections.
 """
 
+from itertools import combinations
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -203,32 +205,87 @@ def plot_sequence(t, seq, label, color="tab:blue", xlabel="t", ylabel="value", t
     plt.show()
 
 
-def compare_controllers(sim1, name1, sim2, name2, a=None, plot_len=None):
+def compare_controllers(
+    *controllers,
+    a=None,
+    plot_start=0,
+    plot_end=None,
+    plot_arrival_separately=False,
+    color_scheme=None,
+):
     """
-    Compare two controllers' b_t, u_t, c_t, and optionally arrivals.
+    Compare two or more controllers' b_t, u_t, c_t, and optionally arrivals.
 
     Parameters
     ----------
-    sim1, sim2 : dict
-        Must include keys 'b', 'u', 'c'.
-    name1, name2 : str
-        Labels for controllers.
+    controllers : (sim, name) pairs, variadic
+        Ordered pairs of simulation output dictionaries and display names.
     a : np.ndarray, optional
         Arrival sequence.
-    plot_len : int, optional
-        Number of points to visualize (default=min(500, T)).
+    plot_start : int, optional
+        Zero-based start index of the visualization window (default: 0).
+    plot_end : int, optional
+        Exclusive end index for visualization (default=min(500, T)).
+    plot_arrival_separately : bool, optional
+        If True and `a` is provided, arrivals are plotted on a separate figure.
+    color_scheme : dict[str, str], optional
+        Custom colors keyed by controller name.
     """
-    b1, b2 = sim1["b"], sim2["b"]
-    u1, u2 = sim1["u"], sim2["u"]
-    c1, c2 = sim1["c"], sim2["c"]
-    T = min(len(b1), len(b2))
-    if plot_len is None:
-        plot_len = min(500, T)
-    t_axis = np.arange(1, plot_len + 1)
+    if len(controllers) < 4 or len(controllers) % 2 != 0:
+        raise ValueError(
+            "Provide controller data as (sim, name) pairs. "
+            "Example: compare_controllers(sim1, 'A', sim2, 'B', sim3, 'C')."
+        )
+
+    controller_data = []
+    for idx in range(0, len(controllers), 2):
+        sim = controllers[idx]
+        name = controllers[idx + 1]
+        if sim is None:
+            raise ValueError(f"Simulation data for controller '{name}' is None.")
+        if not isinstance(sim, dict):
+            raise TypeError(f"Simulation for '{name}' must be a dict of arrays.")
+        for required_key in ("b", "u", "c"):
+            if required_key not in sim:
+                raise KeyError(f"Simulation for '{name}' missing key '{required_key}'.")
+        controller_data.append((name, sim))
+
+    min_horizon = min(len(sim["b"]) for _, sim in controller_data)
+    if plot_end is None:
+        plot_end = min(500, min_horizon)
+    else:
+        plot_end = min(plot_end, min_horizon)
+
+    plot_start = max(int(plot_start), 0)
+    if plot_start >= plot_end:
+        raise ValueError("plot_start must be smaller than plot_end.")
+
+    if a is not None and len(a) < plot_end:
+        raise ValueError(f"Arrival sequence length {len(a)} shorter than requested plot_end {plot_end}.")
+
+    window_slice = slice(plot_start, plot_end)
+    t_axis = np.arange(plot_start + 1, plot_end + 1)
+
+    if color_scheme is None:
+        color_scheme = {}
+    cmap = plt.cm.get_cmap("tab10")
+    for idx, (name, _) in enumerate(controller_data):
+        if name not in color_scheme:
+            color_scheme[name] = cmap(idx % cmap.N)
+    a_color = color_scheme.get("a_t", "tab:gray")
+
+    line_styles = ["-", "--", "-.", ":"]
 
     plt.figure(figsize=(9, 4))
-    plt.plot(t_axis, b1[:plot_len], label=f"{name1} b_t", color="tab:red", linewidth=1.8)
-    plt.plot(t_axis, b2[:plot_len], label=f"{name2} b_t", color="tab:blue", linestyle="--", linewidth=1.8)
+    for idx, (name, sim) in enumerate(controller_data):
+        plt.plot(
+            t_axis,
+            sim["b"][window_slice],
+            label=f"{name} b_t",
+            color=color_scheme[name],
+            linewidth=1.8,
+            linestyle=line_styles[idx % len(line_styles)],
+        )
     plt.title("Backlog / Battery Level")
     plt.xlabel("t")
     plt.ylabel("b_t")
@@ -238,21 +295,46 @@ def compare_controllers(sim1, name1, sim2, name2, a=None, plot_len=None):
     plt.show()
 
     plt.figure(figsize=(9, 4))
-    if a is not None:
-        plt.plot(t_axis, a[:plot_len], label="a_t", color="tab:gray", linewidth=1.2)
-    plt.plot(t_axis, u1[:plot_len], label=f"{name1} u_t", color="tab:red", linewidth=1.8)
-    plt.plot(t_axis, u2[:plot_len], label=f"{name2} u_t", color="tab:blue", linestyle="--", linewidth=1.8)
-    plt.title("Control Action and Arrivals")
+    if a is not None and not plot_arrival_separately:
+        plt.plot(t_axis, a[window_slice], label="a_t", color=a_color, linewidth=1.2)
+    for idx, (name, sim) in enumerate(controller_data):
+        plt.plot(
+            t_axis,
+            sim["u"][window_slice],
+            label=f"{name} u_t",
+            color=color_scheme[name],
+            linewidth=1.8,
+            linestyle=line_styles[idx % len(line_styles)],
+        )
+    plt.title("Usage and Arrivals" if not plot_arrival_separately else "Usage")
     plt.xlabel("t")
-    plt.ylabel("u_t / a_t")
+    plt.ylabel("u_t" if plot_arrival_separately else "u_t / a_t")
     plt.grid(True, linestyle=":", alpha=0.7)
     plt.legend()
     plt.tight_layout()
     plt.show()
 
+    if a is not None and plot_arrival_separately:
+        plt.figure(figsize=(9, 3.6))
+        plt.plot(t_axis, a[window_slice], label="a_t", color=a_color, linewidth=1.2)
+        plt.title("Arrival Sequence")
+        plt.xlabel("t")
+        plt.ylabel("a_t")
+        plt.grid(True, linestyle=":", alpha=0.7)
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
     plt.figure(figsize=(9, 4))
-    plt.plot(t_axis, c1[:plot_len], label=f"{name1} cost", color="tab:red", linewidth=1.8)
-    plt.plot(t_axis, c2[:plot_len], label=f"{name2} cost", color="tab:blue", linestyle="--", linewidth=1.8)
+    for idx, (name, sim) in enumerate(controller_data):
+        plt.plot(
+            t_axis,
+            sim["c"][window_slice],
+            label=f"{name} cost",
+            color=color_scheme[name],
+            linewidth=1.8,
+            linestyle=line_styles[idx % len(line_styles)],
+        )
     plt.title("Per-step Cost Comparison")
     plt.xlabel("t")
     plt.ylabel("c_t")
@@ -261,19 +343,35 @@ def compare_controllers(sim1, name1, sim2, name2, a=None, plot_len=None):
     plt.tight_layout()
     plt.show()
 
-    total1, total2 = np.sum(c1), np.sum(c2)
+    total_costs = {name: float(np.sum(sim["c"])) for name, sim in controller_data}
     print("\n──────────────────────────────")
-    print(f"{name1:<15} Total cost: {total1:.4f}")
-    print(f"{name2:<15} Total cost: {total2:.4f}")
+    for name in total_costs:
+        print(f"{name:<15} Total cost: {total_costs[name]:.4f}")
     print("──────────────────────────────")
 
-    return {
-        "total_cost_1": total1,
-        "total_cost_2": total2,
-        "b_diff": np.mean(np.abs(b1[:plot_len] - b2[:plot_len])),
-        "u_diff": np.mean(np.abs(u1[:plot_len] - u2[:plot_len])),
-        "cost_diff": np.mean(np.abs(c1[:plot_len] - c2[:plot_len])),
-    }
+    comparison_summary = {"total_costs": total_costs}
+    if len(controller_data) >= 2:
+        pairwise_abs_diff = {}
+        for (name_i, sim_i), (name_j, sim_j) in combinations(controller_data, 2):
+            key = f"{name_i} vs {name_j}"
+            pairwise_abs_diff[key] = {
+                "b_diff": float(np.mean(np.abs(sim_i["b"][window_slice] - sim_j["b"][window_slice]))),
+                "u_diff": float(np.mean(np.abs(sim_i["u"][window_slice] - sim_j["u"][window_slice]))),
+                "cost_diff": float(np.mean(np.abs(sim_i["c"][window_slice] - sim_j["c"][window_slice]))),
+            }
+        comparison_summary["pairwise_abs_diff"] = pairwise_abs_diff
+
+        first_two_names = [controller_data[0][0], controller_data[1][0]]
+        first_pair_key = f"{first_two_names[0]} vs {first_two_names[1]}"
+        comparison_summary["total_cost_1"] = total_costs[first_two_names[0]]
+        comparison_summary["total_cost_2"] = total_costs[first_two_names[1]]
+        if first_pair_key in pairwise_abs_diff:
+            comparison_summary["b_diff"] = pairwise_abs_diff[first_pair_key]["b_diff"]
+            comparison_summary["u_diff"] = pairwise_abs_diff[first_pair_key]["u_diff"]
+            comparison_summary["cost_diff"] = pairwise_abs_diff[first_pair_key]["cost_diff"]
+
+    comparison_summary["plot_window"] = {"start": plot_start, "end": plot_end}
+    return comparison_summary
 
 
 # ======================================================================

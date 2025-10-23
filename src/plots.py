@@ -5,71 +5,104 @@ plots.py
 Reusable plotting utilities for visualizing and comparing controller behavior.
 
 Functions:
-    - compare_controllers: plot b_t, u_t, a_t, and c_t for two algorithms.
+    - compare_controllers: plot b_t, u_t, a_t, and c_t for multiple algorithms.
 """
+
+from itertools import combinations
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 
 def compare_controllers(
-    sim1,
-    name1,
-    sim2,
-    name2,
+    *controllers,
     a=None,
-    plot_len=None,
+    plot_start=0,
+    plot_end=None,
+    plot_arrival_separately=False,
     color_scheme=None,
 ):
     """
-    Compare two controller simulations visually.
+    Compare two or more controller simulations visually.
 
     Parameters
     ----------
-    sim1, sim2 : dict
-        Output dictionaries containing keys:
+    controllers : (sim, name) pairs, variadic
+        Ordered pairs of simulation output dictionaries and display names. Each
+        simulation dictionary must contain keys:
             "b" : np.ndarray, backlog or battery sequence
             "u" : np.ndarray, control/usage sequence
             "c" : np.ndarray, per-step cost sequence
-    name1, name2 : str
-        Display names for the two controllers.
     a : np.ndarray, optional
         Arrival sequence to plot (same horizon length).
-    plot_len : int, optional
-        Number of time steps to plot (default: min(500, T)).
-    color_scheme : dict[str, str], optional
+    plot_start : int, optional
+        Zero-based start index of the time window to visualize (default: 0).
+    plot_end : int, optional
+        Exclusive end index of the visualization window (default: min(500, T)).
+    plot_arrival_separately : bool, optional (keyword-only)
+        If True and `a` is provided, draw arrivals on their own figure instead of
+        overlaying them on the control plot.
+    color_scheme : dict[str, str], optional (keyword-only)
         Custom color mapping, e.g. {"Offline Opt": "tab:red", "EGPC": "tab:blue"}.
     """
-    # --- Basic validation ---
-    if sim1 is None or sim2 is None:
-        raise ValueError("Both sim1 and sim2 results must be provided.")
-    if "b" not in sim1 or "b" not in sim2:
-        raise ValueError("Both simulations must include key 'b' for backlog sequence.")
-    if "u" not in sim1 or "u" not in sim2:
-        raise ValueError("Both simulations must include key 'u' for control sequence.")
-    if "c" not in sim1 or "c" not in sim2:
-        raise ValueError("Both simulations must include key 'c' for per-step cost sequence.")
+    if len(controllers) < 4 or len(controllers) % 2 != 0:
+        raise ValueError(
+            "Provide controller data as (sim, name) pairs. "
+            "Example: compare_controllers(sim1, 'A', sim2, 'B', sim3, 'C')."
+        )
 
-    b1, b2 = sim1["b"], sim2["b"]
-    u1, u2 = sim1["u"], sim2["u"]
-    c1, c2 = sim1["c"], sim2["c"]
-    T = min(len(b1), len(b2))
+    controller_data = []
+    for idx in range(0, len(controllers), 2):
+        sim = controllers[idx]
+        name = controllers[idx + 1]
+        if sim is None:
+            raise ValueError(f"Simulation data for controller '{name}' is None.")
+        if not isinstance(sim, dict):
+            raise TypeError(f"Simulation for '{name}' must be a dict of arrays.")
+        for required_key in ("b", "u", "c"):
+            if required_key not in sim:
+                raise KeyError(f"Simulation for '{name}' missing key '{required_key}'.")
+        controller_data.append((name, sim))
 
-    if plot_len is None:
-        plot_len = min(500, T)
-    t_axis = np.arange(1, plot_len + 1)
+    # Determine plotting horizon shared across controllers.
+    min_horizon = min(len(sim["b"]) for _, sim in controller_data)
+    if plot_end is None:
+        plot_end = min(500, min_horizon)
+    else:
+        plot_end = min(plot_end, min_horizon)
 
+    plot_start = max(int(plot_start), 0)
+    if plot_start >= plot_end:
+        raise ValueError("plot_start must be smaller than plot_end.")
+
+    if a is not None and len(a) < plot_end:
+        raise ValueError(f"Arrival sequence length {len(a)} shorter than requested plot_end {plot_end}.")
+
+    window_slice = slice(plot_start, plot_end)
+    t_axis = np.arange(plot_start + 1, plot_end + 1)
+
+    # Build or extend the color scheme.
     if color_scheme is None:
-        color_scheme = {
-            name1: "tab:red",
-            name2: "tab:blue",
-            "a_t": "tab:gray",
-        }
+        color_scheme = {}
+    cmap = plt.cm.get_cmap("tab10")
+    for idx, (name, _) in enumerate(controller_data):
+        if name not in color_scheme:
+            color_scheme[name] = cmap(idx % cmap.N)
+    a_color = color_scheme.get("a_t", "tab:gray")
+
+    line_styles = ["-", "--", "-.", ":"]
 
     # -------------------- (1) Plot b_t comparison --------------------
     plt.figure(figsize=(9, 4))
-    plt.plot(t_axis, b1[:plot_len], label=f"{name1} $b_t$", color=color_scheme[name1], linewidth=1.8)
-    plt.plot(t_axis, b2[:plot_len], label=f"{name2} $b_t$", color=color_scheme[name2], linestyle="--", linewidth=1.8)
+    for idx, (name, sim) in enumerate(controller_data):
+        plt.plot(
+            t_axis,
+            sim["b"][window_slice],
+            label=f"{name} $b_t$",
+            color=color_scheme[name],
+            linewidth=1.8,
+            linestyle=line_styles[idx % len(line_styles)],
+        )
     plt.title(r"Backlog / Battery Level $b_t$")
     plt.xlabel("Time $t$")
     plt.ylabel(r"$b_t$")
@@ -80,22 +113,51 @@ def compare_controllers(
 
     # -------------------- (2) Plot u_t and arrivals --------------------
     plt.figure(figsize=(9, 4))
-    if a is not None:
-        plt.plot(t_axis, a[:plot_len], label=r"$a_t$", color=color_scheme["a_t"], linewidth=1.2)
-    plt.plot(t_axis, u1[:plot_len], label=f"{name1} $u_t$", color=color_scheme[name1], linewidth=1.8)
-    plt.plot(t_axis, u2[:plot_len], label=f"{name2} $u_t$", color=color_scheme[name2], linestyle="--", linewidth=1.8)
-    plt.title(r"Control Action $u_t$ and Arrivals $a_t$")
+    if a is not None and not plot_arrival_separately:
+        plt.plot(t_axis, a[window_slice], label=r"$a_t$", color=a_color, linewidth=1.2)
+    for idx, (name, sim) in enumerate(controller_data):
+        plt.plot(
+            t_axis,
+            sim["u"][window_slice],
+            label=f"{name} $u_t$",
+            color=color_scheme[name],
+            linewidth=1.8,
+            linestyle=line_styles[idx % len(line_styles)],
+        )
+    if plot_arrival_separately:
+        plt.title(r"Usage $u_t$")
+        plt.ylabel(r"$u_t$")
+    else:
+        plt.ylabel(r"$u_t$ , $a_t$")
+        plt.title(r"Usage $u_t$ and Arrivals $a_t$")
     plt.xlabel("Time $t$")
-    plt.ylabel(r"$u_t$ / $a_t$")
     plt.grid(True, linestyle=":", alpha=0.7)
     plt.legend()
     plt.tight_layout()
     plt.show()
 
+    if a is not None and plot_arrival_separately:
+        plt.figure(figsize=(9, 3.6))
+        plt.plot(t_axis, a[window_slice], label=r"$a_t$", color=a_color, linewidth=1.2)
+        plt.title(r"Arrival Sequence $a_t$")
+        plt.xlabel("Time $t$")
+        plt.ylabel(r"$a_t$")
+        plt.grid(True, linestyle=":", alpha=0.7)
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
     # -------------------- (3) Plot cost comparison --------------------
     plt.figure(figsize=(9, 4))
-    plt.plot(t_axis, c1[:plot_len], label=f"{name1} cost", color=color_scheme[name1], linewidth=1.8)
-    plt.plot(t_axis, c2[:plot_len], label=f"{name2} cost", color=color_scheme[name2], linestyle="--", linewidth=1.8)
+    for idx, (name, sim) in enumerate(controller_data):
+        plt.plot(
+            t_axis,
+            sim["c"][window_slice],
+            label=f"{name} cost",
+            color=color_scheme[name],
+            linewidth=1.8,
+            linestyle=line_styles[idx % len(line_styles)],
+        )
     plt.title(r"Per-step Cost Comparison")
     plt.xlabel("Time $t$")
     plt.ylabel(r"$c_t(b_t,u_t)$")
@@ -105,20 +167,37 @@ def compare_controllers(
     plt.show()
 
     # -------------------- (4) Print totals --------------------
-    total1 = np.sum(c1)
-    total2 = np.sum(c2)
+    total_costs = {name: float(np.sum(sim["c"])) for name, sim in controller_data}
     print("\n──────────────────────────────")
-    print(f"{name1:<15} Total cost: {total1:.4f}")
-    print(f"{name2:<15} Total cost: {total2:.4f}")
+    for name in total_costs:
+        print(f"{name:<15} Total cost: {total_costs[name]:.4f}")
     print("──────────────────────────────")
 
-    return {
-        "total_cost_1": total1,
-        "total_cost_2": total2,
-        "b_diff": np.mean(np.abs(b1[:plot_len] - b2[:plot_len])),
-        "u_diff": np.mean(np.abs(u1[:plot_len] - u2[:plot_len])),
-        "cost_diff": np.mean(np.abs(c1[:plot_len] - c2[:plot_len])),
-    }
+    # Prepare return payload with backwards-compatible keys.
+    comparison_summary = {"total_costs": total_costs}
+    if len(controller_data) >= 2:
+        pairwise_abs_diff = {}
+        for (name_i, sim_i), (name_j, sim_j) in combinations(controller_data, 2):
+            key = f"{name_i} vs {name_j}"
+            pairwise_abs_diff[key] = {
+                "b_diff": float(np.mean(np.abs(sim_i["b"][window_slice] - sim_j["b"][window_slice]))),
+                "u_diff": float(np.mean(np.abs(sim_i["u"][window_slice] - sim_j["u"][window_slice]))),
+                "cost_diff": float(np.mean(np.abs(sim_i["c"][window_slice] - sim_j["c"][window_slice]))),
+            }
+        comparison_summary["pairwise_abs_diff"] = pairwise_abs_diff
+
+        # Maintain legacy return keys based on the first pair.
+        first_two_names = [controller_data[0][0], controller_data[1][0]]
+        first_pair_key = f"{first_two_names[0]} vs {first_two_names[1]}"
+        comparison_summary["total_cost_1"] = total_costs[first_two_names[0]]
+        comparison_summary["total_cost_2"] = total_costs[first_two_names[1]]
+        if first_pair_key in pairwise_abs_diff:
+            comparison_summary["b_diff"] = pairwise_abs_diff[first_pair_key]["b_diff"]
+            comparison_summary["u_diff"] = pairwise_abs_diff[first_pair_key]["u_diff"]
+            comparison_summary["cost_diff"] = pairwise_abs_diff[first_pair_key]["cost_diff"]
+    comparison_summary["plot_window"] = {"start": plot_start, "end": plot_end}
+
+    return comparison_summary
 
 
 # Example usage
@@ -137,5 +216,10 @@ if __name__ == "__main__":
         "u": np.cos(0.1 * t + 0.3) + 1,
         "c": np.sin(0.1 * t + 0.2) ** 2,
     }
+    sim3 = {
+        "b": np.sin(0.1 * t + 1.0) + 1,
+        "u": np.cos(0.1 * t + 0.6) + 1,
+        "c": np.sin(0.1 * t + 0.4) ** 2,
+    }
 
-    compare_controllers(sim1, "Offline Opt", sim2, "EGPC", a=a)
+    compare_controllers(sim1, "Offline Opt", sim2, "EGPC", sim3, "Uniform", a=a)

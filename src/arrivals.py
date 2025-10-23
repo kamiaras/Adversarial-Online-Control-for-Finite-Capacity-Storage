@@ -24,6 +24,13 @@ def arrivals_sinusoidal(T, amplitude=1.0, period=100, phase=0):
     a = 0.5 * (1 + np.sin(2 * np.pi * t / period + phase))
     return amplitude * a
 
+def arrivals_sinusoidal_rand(T, period=30,  seed=42):
+    rng = np.random.default_rng(seed)
+
+    t = np.arange(T)
+    a = 0.5 * (1 + np.sin(2 * np.pi * t / period))
+    return (1+rng.random(T)) / 2 * a
+
 
 def arrivals_decaying(T, amplitude=1.0, decay_rate=0.002):
     """Exponentially decaying arrivals."""
@@ -89,6 +96,19 @@ def arrivals_piecewise_linear(T, amplitude=1.0, segments=5, seed=456):
     return amplitude * np.clip(a, 0.0, 1.0)
 
 
+def arrivals_random_walk(T, amplitude=1.0, step_std=0.5, start=0.5, seed=2024):
+    """Mean-reverting random walk clipped to [0, 1]."""
+    rng = np.random.default_rng(seed)
+    start = float(np.clip(start, 0.0, 1.0))
+    walk = np.empty(T)
+    level = start
+    for t in range(T):
+        drift = rng.normal(0.0, step_std)
+        level = np.clip(level + drift, 0.0, 1.0)
+        walk[t] = level
+    return amplitude * walk
+
+
 # --- Registry of available arrivals ---
 ARRIVAL_FUNCTIONS = {
     "fixed": arrivals_fixed,
@@ -101,4 +121,6 @@ ARRIVAL_FUNCTIONS = {
     "switching": arrivals_switching_regime,
     "spike_decay": arrivals_spike_decay,
     "piecewise_linear": arrivals_piecewise_linear,
+    "random_walk": arrivals_random_walk,
+    "arrivals_sinusoidal_rand": arrivals_sinusoidal_rand,
 }
