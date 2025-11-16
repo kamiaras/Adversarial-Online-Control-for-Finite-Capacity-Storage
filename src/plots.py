@@ -13,6 +13,8 @@ from itertools import combinations
 import numpy as np
 import matplotlib.pyplot as plt
 
+from src._controller_compare import normalize_controller_payload
+
 
 def compare_controllers(
     *controllers,
@@ -27,9 +29,25 @@ def compare_controllers(
 
     Parameters
     ----------
-    controllers : (sim, name) pairs, variadic
-        Ordered pairs of simulation output dictionaries and display names. Each
-        simulation dictionary must contain keys:
+    controllers : inputs describing controller simulations
+        Accepts the classic ``(sim, name)`` positional pairs as well as richer
+        payloads such as::
+
+            compare_controllers(
+                {"Offline Opt": sim1, "EGPC": sim2},
+                a=a,
+            )
+
+            compare_controllers(
+                [
+                    (sim1, "Offline Opt"),
+                    {"name": "EGPC", "sim": sim2},
+                    ("Uniform", sim3),
+                ],
+                a=a,
+            )
+
+        Every simulation dictionary must contain the keys:
             "b" : np.ndarray, backlog or battery sequence
             "u" : np.ndarray, control/usage sequence
             "c" : np.ndarray, per-step cost sequence
@@ -45,24 +63,7 @@ def compare_controllers(
     color_scheme : dict[str, str], optional (keyword-only)
         Custom color mapping, e.g. {"Offline Opt": "tab:red", "EGPC": "tab:blue"}.
     """
-    if len(controllers) < 4 or len(controllers) % 2 != 0:
-        raise ValueError(
-            "Provide controller data as (sim, name) pairs. "
-            "Example: compare_controllers(sim1, 'A', sim2, 'B', sim3, 'C')."
-        )
-
-    controller_data = []
-    for idx in range(0, len(controllers), 2):
-        sim = controllers[idx]
-        name = controllers[idx + 1]
-        if sim is None:
-            raise ValueError(f"Simulation data for controller '{name}' is None.")
-        if not isinstance(sim, dict):
-            raise TypeError(f"Simulation for '{name}' must be a dict of arrays.")
-        for required_key in ("b", "u", "c"):
-            if required_key not in sim:
-                raise KeyError(f"Simulation for '{name}' missing key '{required_key}'.")
-        controller_data.append((name, sim))
+    controller_data = normalize_controller_payload(controllers)
 
     # Determine plotting horizon shared across controllers.
     min_horizon = min(len(sim["b"]) for _, sim in controller_data)
@@ -98,12 +99,12 @@ def compare_controllers(
         plt.plot(
             t_axis,
             sim["b"][window_slice],
-            label=f"{name} $b_t$",
+            label=f"{name}",
             color=color_scheme[name],
             linewidth=1.8,
             linestyle=line_styles[idx % len(line_styles)],
         )
-    plt.title(r"Backlog / Battery Level $b_t$")
+    plt.title(r"Battery Level $b_t$")
     plt.xlabel("Time $t$")
     plt.ylabel(r"$b_t$")
     plt.grid(True, linestyle=":", alpha=0.7)
@@ -119,7 +120,7 @@ def compare_controllers(
         plt.plot(
             t_axis,
             sim["u"][window_slice],
-            label=f"{name} $u_t$",
+            label=f"{name} ",
             color=color_scheme[name],
             linewidth=1.8,
             linestyle=line_styles[idx % len(line_styles)],

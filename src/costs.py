@@ -86,6 +86,20 @@ def c_burst_decay(b, u, t, s1=1.0, s2=5, reset_period=30):
     return s1_t * b + s2 * (1 - u) ** 2
 
 
+
+
+
+def c_mod_randomized(b, u, t, period_b=25, period_u=20, seed=123):
+
+    rng = np.random.default_rng(seed + t)
+    noise_t_b = rng.uniform(0, 0.2)  # random multiplier each step
+    sin_t_b = int(t%period_b <= 2)
+    sin_t_u = int(t%period_u != 10)
+    noise_t_u = rng.uniform(0, 0.01)  # random multiplier each step
+    return  5*sin_t_u * (1 - u) ** 2
+
+
+
 # --- Registry of available cost functions ---
 COST_FUNCTIONS = {
     "linear_-b": c_linear_neg_b,
@@ -99,5 +113,6 @@ COST_FUNCTIONS = {
     "burst_switching": c_burst_switching,
     "burst_decay": c_burst_decay,
     "sin_randomized": c_sin_randomized,
+    "mod_randomized": c_mod_randomized,
 }
 
