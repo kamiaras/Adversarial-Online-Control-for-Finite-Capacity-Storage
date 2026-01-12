@@ -154,7 +154,7 @@ def compare_controllers(
         plt.plot(
             t_axis,
             sim["c"][window_slice],
-            label=f"{name} cost",
+            label=f"{name}",
             color=color_scheme[name],
             linewidth=1.8,
             linestyle=line_styles[idx % len(line_styles)],
